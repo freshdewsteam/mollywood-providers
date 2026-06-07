@@ -1,8 +1,6 @@
-// TamilBlasters Provider
-// Source: tamilblasters.quest (domain rotates)
-// Languages: Tamil, Malayalam, Telugu, Hindi, Kannada
-// Type: Magnet links, WEB-DL torrents
-// Structure: WordPress blog with per-movie posts
+// TamilBlasters Provider — fixed for Nuvio Hermes sandbox
+// Languages: Tamil, Malayalam, Telugu, Hindi
+// Type: Magnet links (WEB-DL)
 
 var TB_DOMAINS = [
   "https://www.tamilblasters.quest",
@@ -10,22 +8,32 @@ var TB_DOMAINS = [
   "https://www.tamilblasters.life",
   "https://www.tamilblasters.co"
 ];
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
+var TMDB_KEY = "1b0e359e5d9d1be39b2de291c35d5426";
 
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9"
-};
+function getTitleFromTMDB(tmdbId) {
+  return fetch("https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_KEY, {
+    headers: { "User-Agent": UA }
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      return {
+        title: d.title || "",
+        origTitle: d.original_title || d.title || "",
+        year: (d.release_date || "").split("-")[0]
+      };
+    });
+}
 
 function trySearch(domains, query) {
   if (domains.length === 0) return Promise.reject(new Error("All TamilBlasters domains failed"));
-  var url = domains[0] + "/?s=" + encodeURIComponent(query);
-  return fetch(url, { headers: HEADERS })
+  return fetch(domains[0] + "/?s=" + encodeURIComponent(query), {
+    headers: { "User-Agent": UA, "Referer": domains[0] }
+  })
     .then(function (r) {
       return r.text().then(function (html) {
-        // TamilBlasters is WordPress - check for actual post results
         if (html.indexOf("class=\"post") === -1 && html.indexOf("hentry") === -1) {
-          throw new Error("No results or blocked");
+          throw new Error("No results");
         }
         return { html: html, base: domains[0] };
       });
@@ -33,8 +41,92 @@ function trySearch(domains, query) {
     .catch(function () { return trySearch(domains.slice(1), query); });
 }
 
-function findPostLinks(html, base, title, year) {
+function findPostLinks(html, base, year) {
   var links = [];
+  var re = /href="(https?:\/\/[^"]+tamilblasters[^"]+\/[a-z0-9-]+\/?)"/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    var href = m[1];
+    if (href.indexOf("/category/") !== -1 || href.indexOf("/page/") !== -1 || href === base + "/") continue;
+    var dup = false;
+    for (var i = 0; i < links.length; i++) { if (links[i] === href) { dup = true; break; } }
+    if (!dup) {
+      if (year && href.indexOf(year) !== -1) links.unshift(href);
+      else links.push(href);
+    }
+  }
+  return links.slice(0, 4);
+}
+
+function extractMagnets(postUrl) {
+  return fetch(postUrl, { headers: { "User-Agent": UA, "Referer": postUrl } })
+    .then(function (r) { return r.text(); })
+    .then(function (html) {
+      var streams = [];
+      var re = /(magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^"'\s<]*)/gi;
+      var m;
+      while ((m = re.exec(html)) !== null) {
+        var magnet = m[1];
+        var ihMatch = magnet.match(/urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+        if (!ihMatch) continue;
+        var ih = ihMatch[1].toLowerCase();
+        var pos = html.indexOf(magnet);
+        var ctx = html.substring(Math.max(0, pos - 400), pos + 50);
+
+        var q = "HD";
+        if (/4k|2160p|uhd/i.test(ctx)) q = "4K";
+        else if (/1080p/i.test(ctx)) q = "1080p";
+        else if (/720p/i.test(ctx)) q = "720p";
+        else if (/480p/i.test(ctx)) q = "480p";
+
+        var lang = "";
+        if (/malayalam/i.test(ctx)) lang = "Mal";
+        else if (/tamil/i.test(ctx)) lang = "Tam";
+        else if (/telugu/i.test(ctx)) lang = "Tel";
+
+        var parts = [q];
+        if (lang) parts.push(lang);
+        if (/true web-dl|web-dl/i.test(ctx)) parts.push("WEB-DL");
+        var sz = ctx.match(/([\d.]+)\s*GB/i);
+        if (sz) parts.push(sz[1] + "GB");
+        if (/esub/i.test(ctx)) parts.push("ESub");
+        parts.push("TamilBlasters");
+
+        streams.push({ name: "🔥 TamilBlasters", title: parts.join(" | "), infoHash: ih, quality: q });
+      }
+      return streams;
+    });
+}
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  if (mediaType !== "movie") return Promise.resolve([]);
+
+  return getTitleFromTMDB(tmdbId)
+    .then(function (meta) {
+      return trySearch(TB_DOMAINS, meta.origTitle)
+        .then(function (res) {
+          var links = findPostLinks(res.html, res.base, meta.year);
+          if (links.length === 0 && meta.origTitle !== meta.title) {
+            return trySearch(TB_DOMAINS, meta.title).then(function (r2) { return findPostLinks(r2.html, r2.base, meta.year); });
+          }
+          return links;
+        })
+        .then(function (links) {
+          if (links.length === 0) return [];
+          return extractMagnets(links[0]);
+        });
+    })
+    .catch(function (e) {
+      console.error("[TamilBlasters] Error:", e.message);
+      return [];
+    });
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}  var links = [];
   // WordPress search result post links
   var patterns = [
     /class="post-title[^"]*"[^>]*>\s*<a\s+href="([^"]+)"/gi,
