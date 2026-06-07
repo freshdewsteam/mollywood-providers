@@ -1,95 +1,84 @@
-// NetMirror Provider
-// Source: net22.cc (domain rotates — check net22.cc for current)
-// Languages: Multi (English, Hindi, Tamil, Malayalam, Telugu)
-// Type: M3U8 / Direct streams
-// Note: Disabled on iOS by default due to compatibility issues
+// NetMirrorNew Provider — fixed for Nuvio Hermes sandbox
+// Uses VidSrc embed with TMDB ID directly — no title search needed
+// Languages: Multi including Tamil, Malayalam, Hindi, English
 
-var NETMIRROR_DOMAINS = [
-  "https://net22.cc",
-  "https://netmirror.app",
-  "https://netm.cc"
+var DOMAINS = [
+  "https://vidsrc.xyz",
+  "https://vidsrc.to",
+  "https://vidsrc.pm",
+  "https://vidsrc.net"
 ];
 
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "*/*",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Origin": "https://net22.cc",
-  "Referer": "https://net22.cc/"
-};
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
 
-function tryDomains(domains, path, opts) {
-  if (domains.length === 0) return Promise.reject(new Error("All NetMirror domains failed"));
-  var url = domains[0] + path;
-  return fetch(url, opts || { headers: HEADERS })
+function tryDomains(domains, path) {
+  if (domains.length === 0) return Promise.reject(new Error("[NetMirrorNew] All domains failed"));
+  var domain = domains[0];
+  return fetch(domain + path, {
+    headers: { "User-Agent": UA, "Referer": domain, "Accept": "*/*" }
+  })
     .then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.text().then(function (h) { return { html: h, base: domains[0] }; });
+      return r.text().then(function (h) { return { html: h, base: domain }; });
     })
-    .catch(function () { return tryDomains(domains.slice(1), path, opts); });
+    .catch(function () { return tryDomains(domains.slice(1), path); });
 }
 
-function getNetMirrorStreams(tmdbId, mediaType, season, episode) {
-  // NetMirror has a direct TMDB-based embed API
-  var path;
-  if (mediaType === "movie") {
-    path = "/embed/movie/" + tmdbId;
-  } else {
-    path = "/embed/tv/" + tmdbId + "/" + season + "/" + episode;
-  }
-
-  return tryDomains(NETMIRROR_DOMAINS, path)
-    .then(function (res) {
-      var html = res.html;
-      var base = res.base;
-      var streams = [];
-
-      // Extract M3U8 stream URLs
-      var m3u8Re = /(https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/gi;
-      var m;
-      while ((m = m3u8Re.exec(html)) !== null) {
+function extractStreams(html, base, label) {
+  var streams = [];
+  var patterns = [
+    /(https?:\/\/[^"'\s]+\.m3u8[^"'\s,]*)/g,
+    /"file"\s*:\s*"(https?:\/\/[^"]+)"/g,
+    /src\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)/g
+  ];
+  patterns.forEach(function (re) {
+    var m;
+    while ((m = re.exec(html)) !== null) {
+      var url = m[1];
+      var dup = false;
+      for (var i = 0; i < streams.length; i++) {
+        if (streams[i].url === url) { dup = true; break; }
+      }
+      if (!dup) {
         streams.push({
-          name: "🌐 NetMirror",
-          title: "Auto Quality | NetMirror",
-          url: m[1],
+          name: "🌐 " + (label || "NetMirrorNew"),
+          title: "Auto | " + (label || "NetMirrorNew"),
+          url: url,
           quality: "auto"
         });
       }
-
-      // Also look for JSON source config (common pattern in embed players)
-      var jsonSrcRe = /"file"\s*:\s*"(https?:\/\/[^"]+)"/gi;
-      while ((m = jsonSrcRe.exec(html)) !== null) {
-        streams.push({
-          name: "🌐 NetMirror",
-          title: "Stream | NetMirror",
-          url: m[1],
-          quality: "HD"
-        });
-      }
-
-      // source: [{file: "..."}]
-      var srcArrRe = /file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/gi;
-      while ((m = srcArrRe.exec(html)) !== null) {
-        if (streams.findIndex(function (s) { return s.url === m[1]; }) === -1) {
-          streams.push({
-            name: "🌐 NetMirror",
-            title: "HLS | NetMirror",
-            url: m[1],
-            quality: "auto"
-          });
-        }
-      }
-
-      return streams;
-    });
+    }
+  });
+  return streams;
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return getNetMirrorStreams(tmdbId, mediaType, season, episode)
+  var path = mediaType === "movie"
+    ? "/embed/movie?tmdb=" + tmdbId
+    : "/embed/tv?tmdb=" + tmdbId + "&season=" + season + "&episode=" + episode;
+
+  return tryDomains(DOMAINS, path)
+    .then(function (res) {
+      var streams = extractStreams(res.html, res.base, "NetMirrorNew");
+      if (streams.length > 0) return streams;
+      // Follow iframe
+      var iframeMatch = res.html.match(/src=["'](https?:\/\/[^"']+)["']/);
+      if (iframeMatch) {
+        return fetch(iframeMatch[1], { headers: { "User-Agent": UA, "Referer": res.base } })
+          .then(function (r) { return r.text(); })
+          .then(function (h) { return extractStreams(h, iframeMatch[1], "NetMirrorNew"); })
+          .catch(function () { return []; });
+      }
+      return [];
+    })
     .catch(function (e) {
-      console.error("[NetMirror] Error:", e.message);
+      console.error("[NetMirrorNew] Error:", e.message);
       return [];
     });
 }
 
-module.exports = { getStreams };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}
