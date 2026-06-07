@@ -1,0 +1,100 @@
+{
+  "name": "Mollywood & Tamil Providers",
+  "version": "1.0.0",
+  "description": "Curated providers for Malayalam and Tamil content. Maintained by freshdewsteam.",
+  "author": "freshdewsteam",
+  "scrapers": [
+    {
+      "id": "mallumv",
+      "name": "MalluMV",
+      "description": "Direct links for Malayalam, Tamil, Telugu, Hindi, and Kannada movies. MKV & MP4.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie"],
+      "filename": "providers/mallumv.js",
+      "enabled": true,
+      "formats": ["mkv", "mp4"],
+      "logo": "https://www.google.com/s2/favicons?domain=mallumv.life&sz=128",
+      "contentLanguage": ["ml", "ta", "te", "hi", "kn"]
+    },
+    {
+      "id": "dvdplay",
+      "name": "DVDPlay",
+      "description": "Direct download links for Malayalam, Tamil, and Hindi movies via HubCloud.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie"],
+      "filename": "providers/dvdplay.js",
+      "enabled": true,
+      "formats": ["mkv", "mp4"],
+      "logo": "https://www.google.com/s2/favicons?domain=dvdplay.com.co&sz=128",
+      "contentLanguage": ["ml", "ta", "hi"]
+    },
+    {
+      "id": "tamilblasters",
+      "name": "TamilBlasters",
+      "description": "WEB-DL torrents (magnet links) for Tamil, Malayalam, Telugu, Hindi movies.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie"],
+      "filename": "providers/tamilblasters.js",
+      "enabled": true,
+      "formats": ["mkv"],
+      "logo": "https://www.google.com/s2/favicons?domain=tamilblasters.quest&sz=128",
+      "contentLanguage": ["ta", "ml", "te", "hi"]
+    },
+    {
+      "id": "tamilmv",
+      "name": "TamilMV",
+      "description": "TRUE WEB-DL & 4K torrents for Tamil and Malayalam releases. Domain-aware with auto-fallback.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie"],
+      "filename": "providers/tamilmv.js",
+      "enabled": true,
+      "formats": ["mkv"],
+      "logo": "https://www.google.com/s2/favicons?domain=1tamilmv.cards&sz=128",
+      "contentLanguage": ["ta", "ml", "te"]
+    },
+    {
+      "id": "uhdmovies",
+      "name": "UHDMovies",
+      "description": "4K HDR, 1080p dual audio movies. Tamil/Hindi included. Google Drive & HubCloud links.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie"],
+      "filename": "providers/uhdmovies.js",
+      "enabled": true,
+      "formats": ["mkv"],
+      "logo": "https://www.google.com/s2/favicons?domain=uhdmovies.stream&sz=128",
+      "contentLanguage": ["en", "hi", "ta"]
+    },
+    {
+      "id": "netmirror",
+      "name": "NetMirror",
+      "description": "Multi-language HTTP streams via NetMirror. Movies & TV. Not iOS compatible.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/netmirror.js",
+      "enabled": true,
+      "formats": ["m3u8"],
+      "logo": "https://net22.cc/favicon.ico",
+      "contentLanguage": ["en", "hi", "ta", "ml"],
+      "disabledPlatforms": ["ios"]
+    },
+    {
+      "id": "netmirrornew",
+      "name": "NetMirrorNew",
+      "description": "Alternate NetMirror servers with better reliability. Multi-language HLS streams.",
+      "version": "1.0.0",
+      "author": "freshdewsteam",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/netmirrornew.js",
+      "enabled": true,
+      "formats": ["m3u8"],
+      "logo": "https://www.google.com/s2/favicons?domain=vidsrc.xyz&sz=128",
+      "contentLanguage": ["en", "hi", "ta", "ml"]
+    }
+  ]
+}
