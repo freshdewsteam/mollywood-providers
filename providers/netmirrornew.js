@@ -1,95 +1,88 @@
-// NetMirrorNew Provider
-// A newer/alternate endpoint for NetMirror with better server selection
-// Falls back gracefully if unavailable
-// Languages: Multi (English, Hindi, Tamil, Malayalam, Telugu)
-// Type: M3U8 HLS streams, multi-server
+// NetMirror Provider — fixed for Nuvio Hermes sandbox
+// Uses TMDB ID directly — no title search, no TMDB API call needed
+// Languages: Multi including Tamil, Malayalam, Hindi
 
-var NMN_DOMAINS = [
-  "https://vidsrc.xyz",
-  "https://vidsrc.to",
-  "https://vidsrc.pm"
+var DOMAINS = [
+  "https://net22.cc",
+  "https://netmirror.app",
+  "https://netm.cc"
 ];
 
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,*/*;q=0.9",
-  "Accept-Language": "en-US,en;q=0.9"
-};
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
 
 function tryDomains(domains, path) {
-  if (domains.length === 0) return Promise.reject(new Error("All NetMirrorNew domains failed"));
-  return fetch(domains[0] + path, { headers: HEADERS })
+  if (domains.length === 0) {
+    return Promise.reject(new Error("[NetMirror] All domains failed"));
+  }
+  var domain = domains[0];
+  var remaining = domains.slice(1);
+  return fetch(domain + path, {
+    headers: { "User-Agent": UA, "Referer": domain }
+  })
     .then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.text().then(function (h) { return { html: h, base: domains[0] }; });
+      return r.text();
     })
-    .catch(function () { return tryDomains(domains.slice(1), path); });
+    .then(function (html) {
+      return { html: html, base: domain };
+    })
+    .catch(function () {
+      return tryDomains(remaining, path);
+    });
 }
 
-function extractStreams(html, base) {
+function extractM3U8(html) {
   var streams = [];
-
-  // M3U8 patterns
   var patterns = [
-    /(https?:\/\/[^"'\s,]+\.m3u8[^"'\s,]*)/gi,
-    /"file"\s*:\s*"(https?:\/\/[^"]+)"/gi,
-    /source\s+src="(https?:\/\/[^"]+\.m3u8[^"]*)"/gi,
+    /(https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/g,
+    /"file"\s*:\s*"(https?:\/\/[^"]+)"/g,
+    /source\s+src=["'](https?:\/\/[^"']+\.m3u8[^"']*)/g
   ];
-
   patterns.forEach(function (re) {
     var m;
     while ((m = re.exec(html)) !== null) {
       var url = m[1];
-      if (streams.findIndex(function (s) { return s.url === url; }) === -1) {
-        streams.push({
-          name: "🌐 NetMirrorNew",
-          title: "Auto Quality | NetMirrorNew",
-          url: url,
-          quality: "auto"
-        });
+      var exists = false;
+      for (var i = 0; i < streams.length; i++) {
+        if (streams[i].url === url) { exists = true; break; }
+      }
+      if (!exists) {
+        streams.push({ name: "🌐 NetMirror", title: "Auto | NetMirror", url: url, quality: "auto" });
       }
     }
   });
-
-  // Also check for iframes that need a second fetch
-  var iframeRe = /src="(https?:\/\/[^"]+embed[^"]+)"/gi;
-  var m;
-  var iframes = [];
-  while ((m = iframeRe.exec(html)) !== null) {
-    iframes.push(m[1]);
-  }
-
-  if (streams.length > 0) return Promise.resolve(streams);
-
-  // Follow first iframe
-  if (iframes.length > 0) {
-    return fetch(iframes[0], { headers: Object.assign({}, HEADERS, { Referer: base }) })
-      .then(function (r) { return r.text(); })
-      .then(function (iframeHtml) {
-        return extractStreams(iframeHtml, iframes[0]);
-      })
-      .catch(function () { return []; });
-  }
-
-  return Promise.resolve([]);
+  return streams;
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  var path;
-  if (mediaType === "movie") {
-    path = "/embed/movie?tmdb=" + tmdbId;
-  } else {
-    path = "/embed/tv?tmdb=" + tmdbId + "&season=" + season + "&episode=" + episode;
-  }
+  var path = mediaType === "movie"
+    ? "/embed/movie/" + tmdbId
+    : "/embed/tv/" + tmdbId + "/" + season + "/" + episode;
 
-  return tryDomains(NMN_DOMAINS, path)
+  return tryDomains(DOMAINS, path)
     .then(function (res) {
-      return extractStreams(res.html, res.base);
+      var streams = extractM3U8(res.html);
+      // Follow first iframe if no direct streams
+      if (streams.length === 0) {
+        var iframeMatch = res.html.match(/src=["'](https?:\/\/[^"']+embed[^"']+)["']/);
+        if (iframeMatch) {
+          return fetch(iframeMatch[1], { headers: { "User-Agent": UA, "Referer": res.base } })
+            .then(function (r) { return r.text(); })
+            .then(function (h) { return extractM3U8(h); })
+            .catch(function () { return []; });
+        }
+      }
+      return streams;
     })
     .catch(function (e) {
-      console.error("[NetMirrorNew] Error:", e.message);
+      console.error("[NetMirror] Error:", e.message);
       return [];
     });
 }
 
-module.exports = { getStreams };
+// Required for Nuvio Hermes sandbox
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+                    }
