@@ -1,145 +1,91 @@
-// DVDPlay Provider
-// Source: dvdplay.com.co (domain rotates)
+// DVDPlay Provider — fixed for Nuvio Hermes sandbox
 // Languages: Malayalam, Tamil, Hindi
-// Type: Direct download links via HubCloud extraction
+// Type: Direct MKV via HubCloud
 
-var DVDPLAY_DOMAINS = [
-  "https://dvdplay.com.co",
-  "https://dvdplay.show",
-  "https://dvdplay.art"
-];
+var DOMAINS = ["https://dvdplay.com.co", "https://dvdplay.show", "https://dvdplay.art"];
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36";
+var TMDB_KEY = "1b0e359e5d9d1be39b2de291c35d5426";
 
-var DVDPLAY_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9"
-};
-
-function tryDomain(domains, path) {
-  if (domains.length === 0) return Promise.reject(new Error("All domains failed"));
-  var domain = domains[0];
-  var rest = domains.slice(1);
-  return fetch(domain + path, { headers: DVDPLAY_HEADERS })
-    .then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.text().then(function (html) { return { html: html, base: domain }; });
-    })
-    .catch(function () { return tryDomain(rest, path); });
-}
-
-function searchDVDPlay(title, year) {
-  var query = encodeURIComponent(title);
-  return tryDomain(DVDPLAY_DOMAINS, "/?s=" + query)
-    .then(function (result) {
-      var html = result.html;
-      var base = result.base;
-      var links = [];
-      var re = /href="(https?:\/\/[^"]*dvdplay[^"]*\/[^"]+)"/gi;
-      var m;
-      while ((m = re.exec(html)) !== null) {
-        var href = m[1];
-        if (href.indexOf("/category/") === -1 &&
-            href.indexOf("/page/") === -1 &&
-            href.indexOf("/tag/") === -1 &&
-            href !== base + "/" &&
-            links.indexOf(href) === -1) {
-          links.push(href);
-        }
-      }
-      if (year) {
-        var withYear = links.filter(function (l) { return l.indexOf(year) !== -1; });
-        if (withYear.length > 0) return withYear;
-      }
-      return links.slice(0, 3);
+function getTitleFromTMDB(tmdbId) {
+  return fetch("https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_KEY, {
+    headers: { "User-Agent": UA }
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      return {
+        title: d.title || "",
+        origTitle: d.original_title || d.title || "",
+        year: (d.release_date || "").split("-")[0]
+      };
     });
 }
 
-function extractHubCloudLink(hubUrl) {
-  return fetch(hubUrl, { headers: DVDPLAY_HEADERS })
-    .then(function (r) { return r.text(); })
-    .then(function (html) {
-      // HubCloud redirects to direct download
-      var directRe = /href="(https?:\/\/[^"]+\.(mkv|mp4|m3u8)[^"]*)"/gi;
-      var m = directRe.exec(html);
-      if (m) return m[1];
-      // Also look for meta refresh redirect
-      var metaRe = /content="\d+;\s*url='?([^'"]+)'?"/i;
-      var mm = metaRe.exec(html);
-      if (mm) return mm[1];
-      return null;
-    })
-    .catch(function () { return null; });
+function trySearch(domains, query) {
+  if (domains.length === 0) return Promise.reject(new Error("All DVDPlay domains failed"));
+  return fetch(domains[0] + "/?s=" + encodeURIComponent(query), {
+    headers: { "User-Agent": UA, "Referer": domains[0] }
+  })
+    .then(function (r) { return r.text().then(function (h) { return { html: h, base: domains[0] }; }); })
+    .catch(function () { return trySearch(domains.slice(1), query); });
 }
 
-function extractDVDPlayStreams(postUrl) {
-  return fetch(postUrl, { headers: DVDPLAY_HEADERS })
+function findLinks(html, base, year) {
+  var links = [];
+  var re = /href="(https?:\/\/[^"]*dvdplay[^"]*\/(?!category|page|tag)[a-z0-9-]+\/?)"/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    var href = m[1];
+    var dup = false;
+    for (var i = 0; i < links.length; i++) { if (links[i] === href) { dup = true; break; } }
+    if (!dup && href !== base + "/") links.push(href);
+  }
+  if (year) {
+    var filtered = links.filter(function (l) { return l.indexOf(year) !== -1; });
+    if (filtered.length > 0) return filtered.slice(0, 3);
+  }
+  return links.slice(0, 3);
+}
+
+function extractStreams(postUrl) {
+  return fetch(postUrl, { headers: { "User-Agent": UA, "Referer": postUrl } })
     .then(function (r) { return r.text(); })
     .then(function (html) {
       var streams = [];
-      var qualityRe = /(4K|2160p|1080p|720p|480p)/gi;
-      var qualities = html.match(qualityRe) || ["HD"];
+      var quals = html.match(/(4K|2160p|1080p|720p|480p)/gi) || ["HD"];
 
-      // Find HubCloud links
-      var hubRe = /href="(https?:\/\/hubcloud\.[a-z]+\/[^"]+)"/gi;
+      // HubCloud links
+      var re = /href="(https?:\/\/hubcloud\.[a-z]+\/[^"]+)"/gi;
       var m;
-      var promises = [];
       var idx = 0;
-
-      while ((m = hubRe.exec(html)) !== null && idx < 6) {
-        (function (hubUrl, quality) {
-          promises.push(
-            extractHubCloudLink(hubUrl).then(function (directUrl) {
-              if (directUrl) {
-                streams.push({
-                  name: "📀 DVDPlay",
-                  title: quality + " | DVDPlay",
-                  url: directUrl,
-                  quality: quality
-                });
-              }
-            })
-          );
-        })(m[1], qualities[idx] || "HD");
+      while ((m = re.exec(html)) !== null && idx < 5) {
+        streams.push({ name: "📀 DVDPlay", title: (quals[idx] || "HD") + " | DVDPlay", url: m[1], quality: quals[idx] || "HD" });
         idx++;
       }
-
-      // Also check for direct links
-      var directRe = /href="(https?:\/\/[^"]+\.(mkv|mp4)[^"]*)"/gi;
-      while ((m = directRe.exec(html)) !== null) {
-        streams.push({
-          name: "📀 DVDPlay",
-          title: (qualities[0] || "HD") + " | DVDPlay Direct",
-          url: m[1],
-          quality: qualities[0] || "HD"
-        });
+      // Direct MKV/MP4
+      var re2 = /href="(https?:\/\/[^"]+\.(mkv|mp4)[^"]*)"/gi;
+      while ((m = re2.exec(html)) !== null) {
+        streams.push({ name: "📀 DVDPlay", title: (quals[0] || "HD") + " | DVDPlay Direct", url: m[1], quality: quals[0] || "HD" });
       }
-
-      return Promise.all(promises).then(function () { return streams; });
+      return streams;
     });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
   if (mediaType !== "movie") return Promise.resolve([]);
 
-  return fetch("https://api.themoviedb.org/3/movie/" + tmdbId + "?language=en-US", {
-    headers: { "Authorization": "Bearer " + (typeof TMDB_TOKEN !== "undefined" ? TMDB_TOKEN : "") }
-  })
-    .then(function (r) { return r.json(); })
+  return getTitleFromTMDB(tmdbId)
     .then(function (meta) {
-      var title = meta.title || "";
-      var origTitle = meta.original_title || title;
-      var year = (meta.release_date || "").split("-")[0];
-
-      return searchDVDPlay(title, year)
-        .then(function (links) {
-          if (links.length === 0 && origTitle !== title) {
-            return searchDVDPlay(origTitle, year);
+      return trySearch(DOMAINS, meta.origTitle)
+        .then(function (res) {
+          var links = findLinks(res.html, res.base, meta.year);
+          if (links.length === 0 && meta.origTitle !== meta.title) {
+            return trySearch(DOMAINS, meta.title).then(function (r2) { return findLinks(r2.html, r2.base, meta.year); });
           }
           return links;
         })
         .then(function (links) {
           if (links.length === 0) return [];
-          return extractDVDPlayStreams(links[0]);
+          return extractStreams(links[0]);
         });
     })
     .catch(function (e) {
@@ -148,4 +94,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
     });
 }
 
-module.exports = { getStreams };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}
